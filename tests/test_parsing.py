@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from bot.services import MessageDirectives, SpeechOrchestrator
 from parsing.messages import parse_message
 
 
@@ -44,3 +45,15 @@ def test_semantic_announcements_link_image_file():
     assert link.kind == "link_only"
     assert image.kind == "image_only"
     assert file.kind == "file_only"
+
+
+def test_message_directives_notts():
+    orchestrator = SpeechOrchestrator.__new__(SpeechOrchestrator)
+    directives = orchestrator._extract_directives("notts do not read this")
+    assert directives == MessageDirectives(suppress_tts=True, force_tts=False, cleaned_content="do not read this")
+
+
+def test_message_directives_forced_tts():
+    orchestrator = SpeechOrchestrator.__new__(SpeechOrchestrator)
+    directives = orchestrator._extract_directives("tts read this aloud")
+    assert directives == MessageDirectives(suppress_tts=False, force_tts=True, cleaned_content="read this aloud")

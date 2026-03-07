@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 import discord
 from discord import app_commands
 
+from app.guild_settings import update_guild_settings
 from bot.service_container import ServiceContainer
 
 
@@ -64,15 +63,13 @@ class ServiceCommands(app_commands.Group):
     @_admin_only()
     @app_commands.command(name="enable", description="Enable narration")
     async def enable(self, interaction: discord.Interaction) -> None:
-        settings = await self.services.guild_settings_repository.get(interaction.guild_id)
-        await self.services.guild_settings_repository.save(replace(settings, narration_enabled=True))
+        await update_guild_settings(self.services, interaction.guild_id, narration_enabled=True)
         await interaction.response.send_message("Narration enabled.", ephemeral=True)
 
     @_admin_only()
     @app_commands.command(name="disable", description="Disable narration")
     async def disable(self, interaction: discord.Interaction) -> None:
-        settings = await self.services.guild_settings_repository.get(interaction.guild_id)
-        await self.services.guild_settings_repository.save(replace(settings, narration_enabled=False))
+        await update_guild_settings(self.services, interaction.guild_id, narration_enabled=False)
         await interaction.response.send_message("Narration disabled.", ephemeral=True)
 
 
@@ -86,7 +83,7 @@ class ServiceChannels(app_commands.Group):
     async def add(self, interaction: discord.Interaction, text_channel: discord.TextChannel) -> None:
         settings = await self.services.guild_settings_repository.get(interaction.guild_id)
         ids = sorted(set([*settings.allowed_text_channel_ids, text_channel.id]))
-        await self.services.guild_settings_repository.save(replace(settings, allowed_text_channel_ids=ids))
+        await update_guild_settings(self.services, interaction.guild_id, allowed_text_channel_ids=ids)
         await interaction.response.send_message(f"Added {text_channel.mention}.", ephemeral=True)
 
     @app_commands.checks.has_permissions(administrator=True)
@@ -94,14 +91,13 @@ class ServiceChannels(app_commands.Group):
     async def remove(self, interaction: discord.Interaction, text_channel: discord.TextChannel) -> None:
         settings = await self.services.guild_settings_repository.get(interaction.guild_id)
         ids = [channel_id for channel_id in settings.allowed_text_channel_ids if channel_id != text_channel.id]
-        await self.services.guild_settings_repository.save(replace(settings, allowed_text_channel_ids=ids))
+        await update_guild_settings(self.services, interaction.guild_id, allowed_text_channel_ids=ids)
         await interaction.response.send_message(f"Removed {text_channel.mention}.", ephemeral=True)
 
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.command(name="clear", description="Allow all text channels")
     async def clear(self, interaction: discord.Interaction) -> None:
-        settings = await self.services.guild_settings_repository.get(interaction.guild_id)
-        await self.services.guild_settings_repository.save(replace(settings, allowed_text_channel_ids=[]))
+        await update_guild_settings(self.services, interaction.guild_id, allowed_text_channel_ids=[])
         await interaction.response.send_message("Eligible text channels cleared. All channels are now allowed.", ephemeral=True)
 
 
@@ -116,8 +112,7 @@ class ServiceNarrator(app_commands.Group):
         if not self.services.voice_catalog.is_valid(voice_id):
             await interaction.response.send_message("Unknown voice.", ephemeral=True)
             return
-        settings = await self.services.guild_settings_repository.get(interaction.guild_id)
-        await self.services.guild_settings_repository.save(replace(settings, narrator_voice_id=voice_id))
+        await update_guild_settings(self.services, interaction.guild_id, narrator_voice_id=voice_id)
         await interaction.response.send_message(f"Narrator voice set to `{voice_id}`.", ephemeral=True)
 
     @app_commands.checks.has_permissions(administrator=True)
@@ -143,7 +138,7 @@ class FallbackUserVoice(app_commands.Group):
             await interaction.response.send_message("Voice cannot be used as fallback user voice.", ephemeral=True)
             return
         resolved = self.services.voice_catalog.resolve_user_voice(voice_id, narrator)
-        await self.services.guild_settings_repository.save(replace(settings, fallback_user_voice_id=resolved))
+        await update_guild_settings(self.services, interaction.guild_id, fallback_user_voice_id=resolved)
         await interaction.response.send_message(f"Fallback user voice set to `{resolved}`.", ephemeral=True)
 
 
@@ -158,8 +153,7 @@ class IntroModeCommands(app_commands.Group):
         if mode not in {"always", "on_change", "first_only"}:
             await interaction.response.send_message("Invalid intro mode.", ephemeral=True)
             return
-        settings = await self.services.guild_settings_repository.get(interaction.guild_id)
-        await self.services.guild_settings_repository.save(replace(settings, intro_mode=mode))
+        await update_guild_settings(self.services, interaction.guild_id, intro_mode=mode)
         await interaction.response.send_message(f"Intro mode set to `{mode}`.", ephemeral=True)
 
 
@@ -171,8 +165,7 @@ class SameVCOnlyCommands(app_commands.Group):
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.command(name="set", description="Enable or disable same VC restriction")
     async def set(self, interaction: discord.Interaction, value: bool) -> None:
-        settings = await self.services.guild_settings_repository.get(interaction.guild_id)
-        await self.services.guild_settings_repository.save(replace(settings, same_vc_only=value))
+        await update_guild_settings(self.services, interaction.guild_id, same_vc_only=value)
         await interaction.response.send_message(f"Same VC only set to `{value}`.", ephemeral=True)
 
 
@@ -184,8 +177,7 @@ class IdleDisconnectCommands(app_commands.Group):
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.command(name="set", description="Set idle disconnect seconds")
     async def set(self, interaction: discord.Interaction, seconds: app_commands.Range[int, 0, 300]) -> None:
-        settings = await self.services.guild_settings_repository.get(interaction.guild_id)
-        await self.services.guild_settings_repository.save(replace(settings, idle_disconnect_seconds=int(seconds)))
+        await update_guild_settings(self.services, interaction.guild_id, idle_disconnect_seconds=int(seconds))
         await interaction.response.send_message(f"Idle disconnect set to `{seconds}` seconds.", ephemeral=True)
 
 

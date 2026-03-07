@@ -192,7 +192,12 @@ Optional:
 
 - `LOG_LEVEL=INFO`
 - `TEMP_AUDIO_DIR=./temp_audio`
+- `API_AUDIO_DIR=./temp_audio/api`
 - `FFMPEG_PATH=ffmpeg`
+- `API_KEY=change-me`
+- `API_HOST=0.0.0.0`
+- `API_PORT=8000`
+- `API_AUDIO_TTL_SECONDS=3600`
 - `TTS_HTTP_TIMEOUT=20`
 - `TIKTOK_TTS_URL=https://tiktok-tts.weilnet.workers.dev/api/generation`
 - `GOOGLE_TTS_URL=https://translate.google.com/translate_tts`
@@ -214,11 +219,18 @@ python -m pip install -e .[dev]
 ```
 
 3. Copy `.env.example` to `.env` and fill in `DISCORD_TOKEN`.
-4. Ensure `ffmpeg` is installed and available on `PATH`, or set `FFMPEG_PATH`.
-5. Start the bot:
+4. Set `API_KEY` if you want to use the mutating HTTP endpoints.
+5. Ensure `ffmpeg` is installed and available on `PATH`, or set `FFMPEG_PATH`.
+6. Start the Discord bot only:
 
 ```bash
 python -m app.main
+```
+
+7. Start the combined Discord bot and FastAPI server:
+
+```bash
+python -m app.runner
 ```
 
 ## Docker
@@ -229,13 +241,13 @@ Build locally:
 docker build -t tts3:local .
 ```
 
-Run locally with Compose:
+Run the combined app with Compose:
 
 ```bash
 docker compose up --build -d
 ```
 
-The container image includes `ffmpeg`, runs as a non-root user, and stores SQLite data and generated audio under mounted volumes:
+The container image includes `ffmpeg`, runs as a non-root user, starts the combined runner, and stores SQLite data and generated audio under mounted volumes:
 
 - `/app/data`
 - `/app/temp_audio`
@@ -257,6 +269,84 @@ The repository includes [docker.yml](c:\Users\James\Documents\tts\.github\workfl
 Expected published image path for your target repository:
 
 - `ghcr.io/jamesabrownlee/tts3`
+
+## HTTP API
+
+Endpoints:
+
+- `GET /health`
+- `GET /api/voices`
+- `GET /api/settings/{guild_id}`
+- `PUT /api/settings/{guild_id}`
+- `GET /settings/{guild_id}`
+- `POST /api/synthesize`
+- `GET /audio/{file_id}`
+- `POST /api/announce`
+- `POST /api/announce/chat`
+- `GET /obs/player`
+- `WS /ws/obs`
+
+Example commands:
+
+```bash
+curl http://localhost:8000/health
+curl http://localhost:8000/api/voices
+curl http://localhost:8000/api/settings/1234567890
+```
+
+```bash
+curl -X PUT http://localhost:8000/api/settings/1234567890 \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d "{\"narrator_voice_id\":\"en_uk_001\",\"same_vc_only\":false}"
+```
+
+```bash
+curl -X POST http://localhost:8000/api/synthesize \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d "{\"text\":\"Hello from the API\",\"voice_id\":\"en_us_001\",\"max_seconds\":20,\"download\":false}"
+```
+
+```bash
+curl -X POST http://localhost:8000/api/synthesize \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d "{\"text\":\"Download this\",\"voice_id\":\"en_us_001\",\"max_seconds\":20,\"download\":true}" \
+  --output sample.mp3
+```
+
+```bash
+curl -X POST http://localhost:8000/api/announce \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d "{\"text\":\"The stream is starting now\",\"voice_id\":\"en_us_001\",\"target\":\"obs\"}"
+```
+
+```bash
+curl -X POST http://localhost:8000/api/announce/chat \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $API_KEY" \
+  -d "{\"user\":\"Nightbot\",\"message\":\"Welcome everyone\",\"voice_id\":\"en_us_009\",\"target\":\"obs\"}"
+```
+
+## OBS Browser Source
+
+Use this page as the OBS Browser Source URL:
+
+```text
+http://localhost:8000/obs/player
+```
+
+Behavior:
+
+- it opens `WS /ws/obs`
+- announce endpoints synthesize audio and broadcast the audio URL
+- the page autoplays the audio and shows current status text
+
+Autoplay note:
+
+- OBS Browser Source usually permits autoplay, but other browsers may block it until user interaction.
 
 ## Tests
 
@@ -286,171 +376,3 @@ pytest -q -p no:cacheprovider --basetemp=.pytest_tmp
 - Voice preview currently validates the voice ID but does not play preview audio through the slash command response.
 - Audio playback uses temporary MP3 files rather than full streaming synthesis.
 - Discord voice reconnection is delegated primarily to `discord.py`; the current implementation avoids duplicate connections and reconnects on new session start, but does not yet include a custom voice health supervisor.
-
-
-## Voices
-
-{
-  "voices": [
-    {
-      "id": "en_us_ghostface",
-      "name": "Ghost Face"
-    },
-    {
-      "id": "en_us_c3po",
-      "name": "C3PO"
-    },
-    {
-      "id": "en_us_stitch",
-      "name": "Stitch"
-    },
-    {
-      "id": "en_us_stormtrooper",
-      "name": "Stormtrooper"
-    },
-    {
-      "id": "en_us_rocket",
-      "name": "Rocket"
-    },
-    {
-      "id": "en_female_madam_leota",
-      "name": "Madame Leota"
-    },
-    {
-      "id": "en_male_ghosthost",
-      "name": "Ghost Host"
-    },
-    {
-      "id": "en_male_pirate",
-      "name": "Pirate"
-    },
-    {
-      "id": "en_us_001",
-      "name": "English US (Default)"
-    },
-    {
-      "id": "en_us_002",
-      "name": "Jessie"
-    },
-    {
-      "id": "en_us_006",
-      "name": "Joey"
-    },
-    {
-      "id": "en_us_007",
-      "name": "Professor"
-    },
-    {
-      "id": "en_us_009",
-      "name": "Scientist"
-    },
-    {
-      "id": "en_us_010",
-      "name": "Confidence"
-    },
-    {
-      "id": "en_male_jomboy",
-      "name": "Game On"
-    },
-    {
-      "id": "en_female_samc",
-      "name": "Empathetic"
-    },
-    {
-      "id": "en_male_cody",
-      "name": "Serious"
-    },
-    {
-      "id": "en_female_makeup",
-      "name": "Beauty Guru"
-    },
-    {
-      "id": "en_female_richgirl",
-      "name": "Bestie"
-    },
-    {
-      "id": "en_male_grinch",
-      "name": "Trickster"
-    },
-    {
-      "id": "en_male_narration",
-      "name": "Story Teller"
-    },
-    {
-      "id": "en_male_deadpool",
-      "name": "Mr. GoodGuy"
-    },
-    {
-      "id": "en_male_jarvis",
-      "name": "Alfred"
-    },
-    {
-      "id": "en_male_ashmagic",
-      "name": "ashmagic"
-    },
-    {
-      "id": "en_male_olantekkers",
-      "name": "olantekkers"
-    },
-    {
-      "id": "en_male_ukneighbor",
-      "name": "Lord Cringe"
-    },
-    {
-      "id": "en_male_ukbutler",
-      "name": "Mr. Meticulous"
-    },
-    {
-      "id": "en_female_shenna",
-      "name": "Debutante"
-    },
-    {
-      "id": "en_female_pansino",
-      "name": "Varsity"
-    },
-    {
-      "id": "en_male_trevor",
-      "name": "Marty"
-    },
-    {
-      "id": "en_female_betty",
-      "name": "Bae"
-    },
-    {
-      "id": "en_male_cupid",
-      "name": "Cupid"
-    },
-    {
-      "id": "en_female_grandma",
-      "name": "Granny"
-    },
-    {
-      "id": "en_male_wizard",
-      "name": "Magician"
-    },
-    {
-      "id": "en_uk_001",
-      "name": "Narrator"
-    },
-    {
-      "id": "en_uk_003",
-      "name": "Male English UK"
-    },
-    {
-      "id": "en_au_001",
-      "name": "Metro"
-    },
-    {
-      "id": "en_au_002",
-      "name": "Smooth"
-    },
-    {
-      "id": "es_mx_002",
-      "name": "Warm"
-    },
-    {
-      "id": "google_translate",
-      "name": "Normal voice"
-    }
-  ]
-}

@@ -11,17 +11,20 @@ requires-python = ">=3.11"
 dependencies = [
   "aiohttp>=3.10.0,<4",
   "discord.py[voice]>=2.4.0,<3",
+  "fastapi>=0.115.0,<1",
   "python-dotenv>=1.0.1,<2",
+  "uvicorn>=0.32.0,<1",
 ]
 
 [project.optional-dependencies]
 dev = [
+  "httpx>=0.28.0,<1",
   "pytest>=8.2.0,<9",
   "pytest-asyncio>=0.23.7,<0.24",
 ]
 
 [tool.setuptools]
-packages = ["app", "bot", "bot.commands", "bot.events", "tts", "audio", "parsing", "storage", "domain"]
+packages = ["app", "api", "api.routes", "bot", "bot.commands", "bot.events", "tts", "audio", "parsing", "storage", "domain"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -45,7 +45,12 @@ class Settings:
     tts_provider: str
     log_level: str
     temp_audio_dir: Path
+    api_audio_dir: Path
     ffmpeg_path: str
+    api_key: str | None
+    api_host: str
+    api_port: int
+    api_audio_ttl_seconds: int
     tts_http_timeout: int
     tiktok_tts_url: str
     google_tts_url: str
@@ -62,13 +67,19 @@ def load_settings() -> Settings:
     load_dotenv()
     sqlite_path = Path(_parse_required("SQLITE_PATH")).expanduser()
     temp_audio_dir = Path(os.getenv("TEMP_AUDIO_DIR", "./temp_audio")).expanduser()
+    api_audio_dir = Path(os.getenv("API_AUDIO_DIR", str(temp_audio_dir / "api"))).expanduser()
     return Settings(
         discord_token=_parse_required("DISCORD_TOKEN"),
         sqlite_path=sqlite_path,
         tts_provider=os.getenv("TTS_PROVIDER", "http"),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
         temp_audio_dir=temp_audio_dir,
+        api_audio_dir=api_audio_dir,
         ffmpeg_path=os.getenv("FFMPEG_PATH", "ffmpeg"),
+        api_key=os.getenv("API_KEY"),
+        api_host=os.getenv("API_HOST", "0.0.0.0"),
+        api_port=_parse_int("API_PORT", 8000, minimum=1, maximum=65535),
+        api_audio_ttl_seconds=_parse_int("API_AUDIO_TTL_SECONDS", 3600, minimum=60, maximum=86400),
         tts_http_timeout=_parse_int("TTS_HTTP_TIMEOUT", 20, minimum=1, maximum=120),
         tiktok_tts_url=os.getenv("TIKTOK_TTS_URL", "https://tiktok-tts.weilnet.workers.dev/api/generation"),
         google_tts_url=os.getenv("GOOGLE_TTS_URL", "https://translate.google.com/translate_tts"),

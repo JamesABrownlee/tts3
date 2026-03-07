@@ -83,3 +83,71 @@ async def test_reset_session_clears_state(services):
     reset_session(state)
     assert state.active_voice_channel_id is None
     assert state.currently_connected is False
+
+
+@pytest.mark.asyncio
+async def test_notts_prefix_is_ignored(orchestrator, services, monkeypatch):
+    queued: list[object] = []
+
+    async def fake_enqueue(event):
+        queued.append(event)
+
+    monkeypatch.setattr(services.queue_manager, "enqueue", fake_enqueue)
+    message = SimpleNamespace(
+        guild=SimpleNamespace(id=201, get_member=lambda member_id: member),
+        author=None,
+        content="notts ignore this",
+        id=301,
+        channel=SimpleNamespace(id=401),
+        attachments=[],
+    )
+    member = SimpleNamespace(id=501, bot=False, display_name="Alice", nick=None, voice=SimpleNamespace(channel=SimpleNamespace(id=601, members=[SimpleNamespace(bot=False)])))
+    message.author = member
+    await orchestrator.handle_message(message)
+    assert queued == []
+
+
+@pytest.mark.asyncio
+async def test_forced_tts_from_non_vc_user_uses_active_session(orchestrator, services, monkeypatch):
+    state = services.runtime_states.get(202)
+    start_session(state, voice_channel_id=777, text_channel_id=888)
+
+    parsed_inputs: list[str] = []
+    queued: list[object] = []
+
+    def fake_parse(message, content):
+        parsed_inputs.append(content)
+        return SimpleNamespace(kind="text_only", spoken_text=content, has_attachment=False, attachment_is_image=False, attachment_is_file=False)
+
+    async def fake_build_event(message, member, settings, runtime_state, parsed, voice_channel_id):
+        return SimpleNamespace(
+            guild_id=message.guild.id,
+            event_id="evt-1",
+            message_id=message.id,
+            segments=[SimpleNamespace(text=parsed.spoken_text)],
+            voice_channel_id=voice_channel_id,
+        )
+
+    async def fake_enqueue(event):
+        queued.append(event)
+
+    monkeypatch.setattr(orchestrator, "_parse_discord_message", fake_parse)
+    monkeypatch.setattr(orchestrator, "_build_event", fake_build_event)
+    monkeypatch.setattr(services.queue_manager, "enqueue", fake_enqueue)
+
+    member = SimpleNamespace(id=502, bot=False, display_name="Bob", nick=None, voice=None)
+    guild = SimpleNamespace(id=202, get_member=lambda member_id: member)
+    message = SimpleNamespace(
+        guild=guild,
+        author=member,
+        content="tts read this to the channel",
+        id=302,
+        channel=SimpleNamespace(id=888),
+        attachments=[],
+    )
+
+    await orchestrator.handle_message(message)
+
+    assert parsed_inputs == ["read this to the channel"]
+    assert len(queued) == 1
+    assert queued[0].voice_channel_id == 777

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from time import time
 from uuid import uuid4
 
@@ -21,12 +21,21 @@ from parsing.messages import parse_message
 logger = logging.getLogger(__name__)
 WORDS_PER_SECOND = 2.6
 CHARS_PER_SECOND = 14
+NO_TTS_PREFIX = "notts"
+FORCED_TTS_PREFIX = "tts"
 
 
 def estimate_speech_seconds(text: str) -> float:
     words = max(1, len(text.split()))
     chars = max(1, len(text))
     return max(words / WORDS_PER_SECOND, chars / CHARS_PER_SECOND)
+
+
+@dataclass(slots=True, frozen=True)
+class MessageDirectives:
+    suppress_tts: bool
+    force_tts: bool
+    cleaned_content: str
 
 
 class SpeechOrchestrator:
@@ -41,21 +50,31 @@ class SpeechOrchestrator:
         member = message.author if isinstance(message.author, discord.Member) else message.guild.get_member(message.author.id)
         if member is None:
             return
+        directives = self._extract_directives(message.content)
+        if directives.suppress_tts:
+            logger.info(
+                "message_ignored",
+                extra={"extra": {"guild_id": message.guild.id, "message_id": message.id, "author_id": message.author.id, "reason": "notts_prefix"}},
+            )
+            return
         settings = await self.services.guild_settings_repository.get(message.guild.id)
         runtime_state = self.services.runtime_states.get(message.guild.id)
         author_voice = member.voice.channel if member.voice else None
-        if not can_narrate_message(
+        active_voice_channel_id = runtime_state.active_voice_channel_id
+        forced_voice_channel_id = active_voice_channel_id if directives.force_tts and active_voice_channel_id is not None else None
+        allowed_by_routing = can_narrate_message(
             settings,
             runtime_state,
             author_voice_channel_id=author_voice.id if author_voice else None,
             text_channel_id=message.channel.id,
-        ):
+        )
+        if not allowed_by_routing and not forced_voice_channel_id:
             logger.info(
                 "message_ignored",
                 extra={"extra": {"guild_id": message.guild.id, "message_id": message.id, "author_id": message.author.id, "reason": "routing_or_settings"}},
             )
             return
-        if author_voice is None or not self._has_non_bot_users(author_voice):
+        if forced_voice_channel_id is None and (author_voice is None or not self._has_non_bot_users(author_voice)):
             logger.info(
                 "message_ignored",
                 extra={"extra": {"guild_id": message.guild.id, "message_id": message.id, "author_id": message.author.id, "reason": "author_not_in_eligible_vc"}},
@@ -64,16 +83,35 @@ class SpeechOrchestrator:
         async with self.services.runtime_states.get_lock(message.guild.id):
             settings = await self.services.guild_settings_repository.get(message.guild.id)
             runtime_state = self.services.runtime_states.get(message.guild.id)
+            if forced_voice_channel_id is not None:
+                if runtime_state.active_voice_channel_id is None:
+                    logger.info(
+                        "message_ignored",
+                        extra={"extra": {"guild_id": message.guild.id, "message_id": message.id, "author_id": message.author.id, "reason": "forced_tts_without_active_session"}},
+                    )
+                    return
+                target_voice_channel_id = runtime_state.active_voice_channel_id
+            else:
+                if author_voice is None:
+                    return
+                target_voice_channel_id = author_voice.id
             if runtime_state.active_voice_channel_id is None:
+                if author_voice is None:
+                    logger.info(
+                        "message_ignored",
+                        extra={"extra": {"guild_id": message.guild.id, "message_id": message.id, "author_id": message.author.id, "reason": "cannot_start_session_without_vc"}},
+                    )
+                    return
                 await self._start_session(message.guild, runtime_state, author_voice, message.channel.id)
-            elif runtime_state.active_voice_channel_id != author_voice.id:
+                target_voice_channel_id = author_voice.id
+            elif forced_voice_channel_id is None and runtime_state.active_voice_channel_id != author_voice.id:
                 logger.info(
                     "message_ignored",
                     extra={"extra": {"guild_id": message.guild.id, "message_id": message.id, "author_id": message.author.id, "reason": "different_active_vc"}},
                 )
                 return
-            parsed = self._parse_discord_message(message)
-            event = await self._build_event(message, member, settings, runtime_state, parsed, author_voice.id)
+            parsed = self._parse_discord_message(message, directives.cleaned_content)
+            event = await self._build_event(message, member, settings, runtime_state, parsed, target_voice_channel_id)
             if event is None:
                 logger.info(
                     "message_ignored",
@@ -103,15 +141,24 @@ class SpeechOrchestrator:
         if state.queue_worker_task is None or state.queue_worker_task.done():
             state.queue_worker_task = asyncio.create_task(self._queue_worker(guild.id), name=f"guild-queue-{guild.id}")
 
-    def _parse_discord_message(self, message: discord.Message) -> ParsedMessage:
+    def _parse_discord_message(self, message: discord.Message, content: str) -> ParsedMessage:
         return parse_message(
-            message.content,
+            content,
             attachments=list(message.attachments),
             attachment_filenames=[attachment.filename for attachment in message.attachments],
             user_lookup=lambda discord_id: self._resolve_user_name(message.guild, discord_id),
             channel_lookup=lambda channel_id: self._resolve_channel_name(message.guild, channel_id),
             role_lookup=lambda role_id: self._resolve_role_name(message.guild, role_id),
         )
+
+    def _extract_directives(self, content: str) -> MessageDirectives:
+        stripped = content.lstrip()
+        lowered = stripped.lower()
+        if lowered.startswith(NO_TTS_PREFIX) and (len(stripped) == len(NO_TTS_PREFIX) or stripped[len(NO_TTS_PREFIX)].isspace()):
+            return MessageDirectives(suppress_tts=True, force_tts=False, cleaned_content=stripped[len(NO_TTS_PREFIX):].lstrip())
+        if lowered.startswith(FORCED_TTS_PREFIX) and len(stripped) > len(FORCED_TTS_PREFIX) and stripped[len(FORCED_TTS_PREFIX)].isspace():
+            return MessageDirectives(suppress_tts=False, force_tts=True, cleaned_content=stripped[len(FORCED_TTS_PREFIX):].lstrip())
+        return MessageDirectives(suppress_tts=False, force_tts=False, cleaned_content=content)
 
     async def _build_event(
         self,

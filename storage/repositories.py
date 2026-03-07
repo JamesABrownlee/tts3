@@ -127,6 +127,10 @@ class GuildSettingsRepository:
         updated = replace(current, **changes, updated_at=now_ts())
         return await self.save(updated)
 
+    async def list_guild_ids(self) -> list[int]:
+        rows = await self.db.fetchall("SELECT guild_id FROM guild_settings ORDER BY guild_id ASC")
+        return [int(row["guild_id"]) for row in rows]
+
 
 class GuildRuntimeRepository:
     def __init__(self, db: Database) -> None:

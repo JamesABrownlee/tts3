@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 async def update_guild_settings(services: ServiceContainer, guild_id: int, **changes: object):
+    if "narrator_voice_id" in changes or "fallback_user_voice_id" in changes:
+        services.tts_provider.reset_voice_state()
     settings = await services.guild_settings_repository.update(guild_id, **changes)
     await _apply_runtime_settings(services, settings)
     return settings

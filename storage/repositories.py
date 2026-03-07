@@ -70,6 +70,8 @@ class GuildSettingsRepository:
             narrator_voice_id=row["narrator_voice_id"],
             fallback_user_voice_id=row["fallback_user_voice_id"],
             narration_enabled=bool(row["narration_enabled"]),
+            welcome_enabled=bool(row["welcome_enabled"]) if "welcome_enabled" in row.keys() else False,
+            farewell_enabled=bool(row["farewell_enabled"]) if "farewell_enabled" in row.keys() else False,
             announce_links=bool(row["announce_links"]),
             announce_images=bool(row["announce_images"]),
             announce_files=bool(row["announce_files"]),
@@ -86,14 +88,16 @@ class GuildSettingsRepository:
             """
             INSERT INTO guild_settings (
                 guild_id, allowed_text_channel_ids, narrator_voice_id, fallback_user_voice_id,
-                narration_enabled, announce_links, announce_images, announce_files, same_vc_only,
+                narration_enabled, welcome_enabled, farewell_enabled, announce_links, announce_images, announce_files, same_vc_only,
                 intro_mode, max_combined_audio_seconds, idle_disconnect_seconds, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(guild_id) DO UPDATE SET
                 allowed_text_channel_ids = excluded.allowed_text_channel_ids,
                 narrator_voice_id = excluded.narrator_voice_id,
                 fallback_user_voice_id = excluded.fallback_user_voice_id,
                 narration_enabled = excluded.narration_enabled,
+                welcome_enabled = excluded.welcome_enabled,
+                farewell_enabled = excluded.farewell_enabled,
                 announce_links = excluded.announce_links,
                 announce_images = excluded.announce_images,
                 announce_files = excluded.announce_files,
@@ -109,6 +113,8 @@ class GuildSettingsRepository:
                 settings.narrator_voice_id,
                 settings.fallback_user_voice_id,
                 int(settings.narration_enabled),
+                int(settings.welcome_enabled),
+                int(settings.farewell_enabled),
                 int(settings.announce_links),
                 int(settings.announce_images),
                 int(settings.announce_files),

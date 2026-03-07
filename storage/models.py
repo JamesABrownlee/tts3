@@ -23,6 +23,8 @@ def default_guild_settings(guild_id: int, fallback_voice_id: str, *, timestamp: 
         narrator_voice_id=None,
         fallback_user_voice_id=fallback_voice_id,
         narration_enabled=True,
+        welcome_enabled=False,
+        farewell_enabled=False,
         announce_links=True,
         announce_images=True,
         announce_files=True,

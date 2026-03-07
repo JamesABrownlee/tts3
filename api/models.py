@@ -23,6 +23,8 @@ class GuildSettingsResponse(BaseModel):
     narrator_voice_id: str | None
     fallback_user_voice_id: str | None
     narration_enabled: bool
+    welcome_enabled: bool
+    farewell_enabled: bool
     announce_links: bool
     announce_images: bool
     announce_files: bool
@@ -37,6 +39,8 @@ class GuildSettingsUpdateRequest(BaseModel):
     narrator_voice_id: str | None = None
     fallback_user_voice_id: str | None = None
     narration_enabled: bool | None = None
+    welcome_enabled: bool | None = None
+    farewell_enabled: bool | None = None
     announce_links: bool | None = None
     announce_images: bool | None = None
     announce_files: bool | None = None

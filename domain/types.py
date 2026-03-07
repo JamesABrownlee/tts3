@@ -39,6 +39,7 @@ class GuildRuntimeState:
     active_voice_channel_id: int | None = None
     active_text_channel_id: int | None = None
     last_speaker_discord_id: int | None = None
+    last_narrator_voice_id: str | None = None
     session_started_at: float | None = None
     disconnect_task: asyncio.Task[None] | None = None
     queue_worker_task: asyncio.Task[None] | None = None
@@ -62,6 +63,8 @@ class GuildSettings:
     narrator_voice_id: str | None
     fallback_user_voice_id: str | None
     narration_enabled: bool
+    welcome_enabled: bool
+    farewell_enabled: bool
     announce_links: bool
     announce_images: bool
     announce_files: bool
@@ -90,4 +93,3 @@ class ParsedMessage:
     has_attachment: bool
     attachment_is_image: bool
     attachment_is_file: bool
-

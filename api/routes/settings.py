@@ -21,6 +21,8 @@ def _settings_to_response(settings) -> GuildSettingsResponse:
         narrator_voice_id=settings.narrator_voice_id,
         fallback_user_voice_id=settings.fallback_user_voice_id,
         narration_enabled=settings.narration_enabled,
+        welcome_enabled=settings.welcome_enabled,
+        farewell_enabled=settings.farewell_enabled,
         announce_links=settings.announce_links,
         announce_images=settings.announce_images,
         announce_files=settings.announce_files,
@@ -118,6 +120,8 @@ async def settings_page(guild_id: int, services: ServiceContainer = Depends(get_
   </div>
   <div class="checks">
     <label><input id="narrationEnabled" type="checkbox" /> Narration enabled</label>
+    <label><input id="welcomeEnabled" type="checkbox" /> Welcome announcements</label>
+    <label><input id="farewellEnabled" type="checkbox" /> Farewell announcements</label>
     <label><input id="announceLinks" type="checkbox" /> Announce links</label>
     <label><input id="announceImages" type="checkbox" /> Announce images</label>
     <label><input id="announceFiles" type="checkbox" /> Announce files</label>
@@ -126,7 +130,7 @@ async def settings_page(guild_id: int, services: ServiceContainer = Depends(get_
   <button id="saveButton">Save</button>
   <div id="status"></div>
   <script>
-    const guildId = {guild_id};
+    const guildId = window.location.pathname.split('/').filter(Boolean).pop();
     const status = document.getElementById('status');
     async function loadSettings() {{
       const response = await fetch(`/api/settings/${{guildId}}`);
@@ -138,6 +142,8 @@ async def settings_page(guild_id: int, services: ServiceContainer = Depends(get_
       document.getElementById('idleDisconnect').value = data.idle_disconnect_seconds;
       document.getElementById('maxSeconds').value = data.max_combined_audio_seconds;
       document.getElementById('narrationEnabled').checked = data.narration_enabled;
+      document.getElementById('welcomeEnabled').checked = data.welcome_enabled;
+      document.getElementById('farewellEnabled').checked = data.farewell_enabled;
       document.getElementById('announceLinks').checked = data.announce_links;
       document.getElementById('announceImages').checked = data.announce_images;
       document.getElementById('announceFiles').checked = data.announce_files;
@@ -155,6 +161,8 @@ async def settings_page(guild_id: int, services: ServiceContainer = Depends(get_
         idle_disconnect_seconds: Number(document.getElementById('idleDisconnect').value),
         max_combined_audio_seconds: Number(document.getElementById('maxSeconds').value),
         narration_enabled: document.getElementById('narrationEnabled').checked,
+        welcome_enabled: document.getElementById('welcomeEnabled').checked,
+        farewell_enabled: document.getElementById('farewellEnabled').checked,
         announce_links: document.getElementById('announceLinks').checked,
         announce_images: document.getElementById('announceImages').checked,
         announce_files: document.getElementById('announceFiles').checked,

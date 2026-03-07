@@ -107,3 +107,20 @@ def test_disabling_narration_ends_active_session_immediately(services):
     assert response.status_code == 200
     assert services.runtime_states.get(55).active_voice_channel_id is None
     assert services.runtime_states.get(55).currently_connected is False
+
+
+def test_changing_narrator_voice_resets_provider_voice_state(services, monkeypatch):
+    calls: list[object] = []
+
+    def fake_reset(voice_id=None):
+        calls.append(voice_id)
+
+    monkeypatch.setattr(services.tts_provider, "reset_voice_state", fake_reset)
+    client = _client(services)
+    response = client.put(
+        "/api/settings/77",
+        headers={"X-API-Key": services.settings.api_key},
+        json={"narrator_voice_id": "en_us_002"},
+    )
+    assert response.status_code == 200
+    assert calls == [None]

@@ -26,6 +26,7 @@ def start_session(state: GuildRuntimeState, *, voice_channel_id: int, text_chann
     state.active_voice_channel_id = voice_channel_id
     state.active_text_channel_id = text_channel_id
     state.last_speaker_discord_id = None
+    state.last_narrator_voice_id = None
     state.session_started_at = time()
     state.currently_connected = True
     state.heard_speakers.clear()
@@ -36,6 +37,7 @@ def reset_session(state: GuildRuntimeState) -> GuildRuntimeState:
     state.active_voice_channel_id = None
     state.active_text_channel_id = None
     state.last_speaker_discord_id = None
+    state.last_narrator_voice_id = None
     state.session_started_at = None
     state.currently_connected = False
     state.heard_speakers.clear()

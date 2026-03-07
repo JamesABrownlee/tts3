@@ -48,4 +48,11 @@ MIGRATIONS: list[tuple[str, str]] = [
         );
         """.strip(),
     ),
+    (
+        "002_guild_settings_welcome_farewell",
+        """
+        ALTER TABLE guild_settings ADD COLUMN welcome_enabled INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE guild_settings ADD COLUMN farewell_enabled INTEGER NOT NULL DEFAULT 0;
+        """.strip(),
+    ),
 ]

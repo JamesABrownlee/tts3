@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -33,6 +34,27 @@ async def test_spoken_event_creation(orchestrator, services):
     assert event.guild_id == guild_id
     assert event.segments[0].text == "Alice said"
     assert event.segments[-1].text == "hello there"
+
+
+@pytest.mark.asyncio
+async def test_narrator_voice_change_forces_new_intro(orchestrator, services):
+    guild_id = 777
+    settings = await services.guild_settings_repository.get(guild_id)
+    settings = await services.guild_settings_repository.save(replace(settings, narrator_voice_id="en_us_002"))
+    state = services.runtime_states.get(guild_id)
+    state.last_speaker_discord_id = 42
+    state.last_narrator_voice_id = "en_us_001"
+    message = SimpleNamespace(
+        guild=SimpleNamespace(id=guild_id),
+        id=1002,
+        channel=SimpleNamespace(id=2003),
+    )
+    member = SimpleNamespace(id=42, display_name="Alice", nick=None)
+    parsed = SimpleNamespace(kind="text_only", spoken_text="same speaker", has_attachment=False, attachment_is_image=False, attachment_is_file=False)
+    event = await orchestrator._build_event(message, member, settings, state, parsed, 3004)
+    assert event is not None
+    assert event.segments[0].kind == "narrator"
+    assert event.segments[0].voice_id == "en_us_002"
 
 
 @pytest.mark.asyncio

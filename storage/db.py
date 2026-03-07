@@ -76,7 +76,11 @@ class Database:
             if name in applied:
                 continue
             async with self._lock:
-                self.connection.executescript(sql)
+                try:
+                    self.connection.executescript(sql)
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column name" not in str(exc).lower():
+                        raise
                 self.connection.execute(
                     "INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)",
                     (name, int(time())),

@@ -33,6 +33,7 @@ class RuntimeStateStore:
         state.active_voice_channel_id = None
         state.active_text_channel_id = None
         state.last_speaker_discord_id = None
+        state.last_narrator_voice_id = None
         state.session_started_at = None
         state.currently_connected = False
         state.heard_speakers.clear()

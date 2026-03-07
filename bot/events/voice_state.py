@@ -15,4 +15,4 @@ async def handle_voice_state_update(
 ) -> None:
     if member.guild is None:
         return
-    await orchestrator.schedule_disconnect_if_empty(member.guild)
+    await orchestrator.handle_voice_transition(member, before, after)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, replace
+from datetime import datetime
 from time import time
 from uuid import uuid4
 
@@ -12,6 +13,7 @@ import discord
 
 from audio.generated_audio import GeneratedAudio
 from bot.service_container import ServiceContainer
+from domain.announcements import build_farewell_text, build_welcome_text
 from domain.routing import can_narrate_message
 from domain.services import mark_speaker, reset_session, should_announce_speaker, start_session
 from domain.types import GuildRuntimeState, GuildSettings, ParsedMessage, SpeechSegment, SpokenEvent
@@ -124,6 +126,34 @@ class SpeechOrchestrator:
                 extra={"extra": {"guild_id": event.guild_id, "event_id": event.event_id, "message_id": event.message_id, "segment_count": len(event.segments)}},
             )
 
+    async def handle_voice_transition(
+        self,
+        member: discord.Member,
+        before: discord.VoiceState,
+        after: discord.VoiceState,
+    ) -> None:
+        if member.bot or member.guild is None:
+            return
+        guild = member.guild
+        state = self.services.runtime_states.get(guild.id)
+        active_channel_id = self._get_active_session_channel_id(guild, state)
+        if active_channel_id is None:
+            await self.schedule_disconnect_if_empty(guild)
+            return
+        before_channel_id = before.channel.id if before.channel else None
+        after_channel_id = after.channel.id if after.channel else None
+        joined_active = before_channel_id != active_channel_id and after_channel_id == active_channel_id
+        left_active = before_channel_id == active_channel_id and after_channel_id != active_channel_id
+        if not joined_active and not left_active:
+            await self.schedule_disconnect_if_empty(guild)
+            return
+        settings = await self.services.guild_settings_repository.get(guild.id)
+        if joined_active and settings.welcome_enabled:
+            await self._enqueue_narrator_announcement(guild.id, active_channel_id, member, build_welcome_text(self._resolve_member_name(member), datetime.now()))
+        elif left_active and settings.farewell_enabled:
+            await self._enqueue_narrator_announcement(guild.id, active_channel_id, member, build_farewell_text(self._resolve_member_name(member)))
+        await self.schedule_disconnect_if_empty(guild)
+
     async def _start_session(
         self,
         guild: discord.Guild,
@@ -197,7 +227,9 @@ class SpeechOrchestrator:
         if not parsed.spoken_text:
             return None
         narrator_text = f"{display_name} said"
-        narrator_seconds = estimate_speech_seconds(narrator_text) if should_announce_speaker(settings, runtime_state, member.id) else 0
+        narrator_changed = runtime_state.last_narrator_voice_id is not None and runtime_state.last_narrator_voice_id != narrator_voice_id
+        narrator_intro_needed = narrator_changed or should_announce_speaker(settings, runtime_state, member.id)
+        narrator_seconds = estimate_speech_seconds(narrator_text) if narrator_intro_needed else 0
         remaining_budget = max(1.0, settings.max_combined_audio_seconds - narrator_seconds)
         user_text = self._truncate_to_budget(parsed.spoken_text, remaining_budget)
         if not user_text:
@@ -285,9 +317,40 @@ class SpeechOrchestrator:
                 "segment_played",
                 extra={"extra": {"guild_id": event.guild_id, "event_id": event.event_id, "voice_id": segment.voice_id, "kind": segment.kind}},
             )
+            if segment.kind == "narrator":
+                state.last_narrator_voice_id = segment.voice_id
         if event.speaker_discord_id is not None:
             mark_speaker(state, event.speaker_discord_id)
             await self.services.guild_runtime_repository.save(state)
+        elif any(segment.kind == "narrator" for segment in event.segments):
+            await self.services.guild_runtime_repository.save(state)
+
+    async def _enqueue_narrator_announcement(
+        self,
+        guild_id: int,
+        voice_channel_id: int,
+        member: discord.Member,
+        text: str,
+    ) -> None:
+        settings = await self.services.guild_settings_repository.get(guild_id)
+        narrator_voice_id = self.services.voice_catalog.resolve_narrator_voice(settings.narrator_voice_id)
+        event = SpokenEvent(
+            guild_id=guild_id,
+            speaker_discord_id=None,
+            speaker_display_name=self._resolve_member_name(member),
+            message_id=None,
+            text_channel_id=self.services.runtime_states.get(guild_id).active_text_channel_id,
+            voice_channel_id=voice_channel_id,
+            segments=[SpeechSegment(text=text, voice_id=narrator_voice_id, kind="narrator")],
+            created_at=time(),
+            attempt_count=0,
+            event_id=uuid4().hex,
+        )
+        await self.services.queue_manager.enqueue(event)
+        logger.info(
+            "event_enqueued",
+            extra={"extra": {"guild_id": event.guild_id, "event_id": event.event_id, "message_id": None, "segment_count": len(event.segments), "reason": "voice_transition"}},
+        )
 
     async def schedule_disconnect_if_empty(self, guild: discord.Guild) -> None:
         state = self.services.runtime_states.get(guild.id)
@@ -357,3 +420,17 @@ class SpeechOrchestrator:
             return None
         role = guild.get_role(role_id)
         return role.name if role else None
+
+    def _resolve_member_name(self, member: discord.Member) -> str:
+        return member.nick or member.display_name or member.name
+
+    def _get_active_session_channel_id(self, guild: discord.Guild, state: GuildRuntimeState) -> int | None:
+        if state.active_voice_channel_id is not None and state.currently_connected:
+            return state.active_voice_channel_id
+        voice_client = getattr(guild, "voice_client", None)
+        if voice_client is None or not voice_client.is_connected() or voice_client.channel is None:
+            return None
+        active_channel_id = state.active_voice_channel_id or voice_client.channel.id
+        state.active_voice_channel_id = active_channel_id
+        state.currently_connected = True
+        return active_channel_id

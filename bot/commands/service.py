@@ -24,6 +24,8 @@ class ServiceCommands(app_commands.Group):
         self.intro_mode = IntroModeCommands(services)
         self.same_vc_only = SameVCOnlyCommands(services)
         self.idle_disconnect = IdleDisconnectCommands(services)
+        self.welcome = WelcomeCommands(services)
+        self.farewell = FarewellCommands(services)
         self.session = SessionCommands(end_session_callback)
         self.add_command(self.channels)
         self.add_command(self.narrator)
@@ -31,6 +33,8 @@ class ServiceCommands(app_commands.Group):
         self.add_command(self.intro_mode)
         self.add_command(self.same_vc_only)
         self.add_command(self.idle_disconnect)
+        self.add_command(self.welcome)
+        self.add_command(self.farewell)
         self.add_command(self.session)
 
     @app_commands.command(name="show", description="Show guild TTS service status")
@@ -47,6 +51,8 @@ class ServiceCommands(app_commands.Group):
         fallback = self.services.voice_catalog.resolve_user_voice(settings.fallback_user_voice_id, narrator)
         body = (
             f"Narration enabled: `{settings.narration_enabled}`\n"
+            f"Welcome announcements: `{'On' if settings.welcome_enabled else 'Off'}`\n"
+            f"Farewell announcements: `{'On' if settings.farewell_enabled else 'Off'}`\n"
             f"Eligible text channels: {channels}\n"
             f"Narrator voice: `{narrator}`\n"
             f"Fallback user voice: `{fallback}`\n"
@@ -179,6 +185,42 @@ class IdleDisconnectCommands(app_commands.Group):
     async def set(self, interaction: discord.Interaction, seconds: app_commands.Range[int, 0, 300]) -> None:
         await update_guild_settings(self.services, interaction.guild_id, idle_disconnect_seconds=int(seconds))
         await interaction.response.send_message(f"Idle disconnect set to `{seconds}` seconds.", ephemeral=True)
+
+
+class WelcomeCommands(app_commands.Group):
+    def __init__(self, services: ServiceContainer) -> None:
+        super().__init__(name="welcome", description="Manage welcome announcements")
+        self.services = services
+
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.command(name="enable", description="Enable welcome announcements")
+    async def enable(self, interaction: discord.Interaction) -> None:
+        await update_guild_settings(self.services, interaction.guild_id, welcome_enabled=True)
+        await interaction.response.send_message("Welcome announcements enabled for this server.", ephemeral=True)
+
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.command(name="disable", description="Disable welcome announcements")
+    async def disable(self, interaction: discord.Interaction) -> None:
+        await update_guild_settings(self.services, interaction.guild_id, welcome_enabled=False)
+        await interaction.response.send_message("Welcome announcements disabled for this server.", ephemeral=True)
+
+
+class FarewellCommands(app_commands.Group):
+    def __init__(self, services: ServiceContainer) -> None:
+        super().__init__(name="farewell", description="Manage farewell announcements")
+        self.services = services
+
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.command(name="enable", description="Enable farewell announcements")
+    async def enable(self, interaction: discord.Interaction) -> None:
+        await update_guild_settings(self.services, interaction.guild_id, farewell_enabled=True)
+        await interaction.response.send_message("Farewell announcements enabled for this server.", ephemeral=True)
+
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.command(name="disable", description="Disable farewell announcements")
+    async def disable(self, interaction: discord.Interaction) -> None:
+        await update_guild_settings(self.services, interaction.guild_id, farewell_enabled=False)
+        await interaction.response.send_message("Farewell announcements disabled for this server.", ephemeral=True)
 
 
 class SessionCommands(app_commands.Group):

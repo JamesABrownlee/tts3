@@ -1,0 +1,24 @@
+services:
+  tts-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
+      SQLITE_PATH: /app/data/bot.sqlite3
+      TTS_PROVIDER: ${TTS_PROVIDER:-http}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      TEMP_AUDIO_DIR: /app/temp_audio
+      FFMPEG_PATH: /usr/bin/ffmpeg
+      TTS_HTTP_TIMEOUT: ${TTS_HTTP_TIMEOUT:-20}
+      TIKTOK_TTS_URL: ${TIKTOK_TTS_URL:-https://tiktok-tts.weilnet.workers.dev/api/generation}
+      GOOGLE_TTS_URL: ${GOOGLE_TTS_URL:-https://translate.google.com/translate_tts}
+      USER_AGENT: ${USER_AGENT:-Mozilla/5.0}
+      FALLBACK_VOICE: ${FALLBACK_VOICE:-en_us_001}
+      MAX_AUDIO_SECONDS: ${MAX_AUDIO_SECONDS:-20}
+      VOICE_FAILURE_THRESHOLD: ${VOICE_FAILURE_THRESHOLD:-3}
+      VOICE_COOLDOWN_DURATION: ${VOICE_COOLDOWN_DURATION:-300}
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+      - ./temp_audio:/app/temp_audio

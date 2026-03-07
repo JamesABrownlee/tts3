@@ -1,0 +1,14 @@
+.env
+.pytest_tmp/
+.test_tmp/
+__pycache__/
+*.pyc
+temp_audio/
+data/
+*.log
+*.err
+*.pid
+*.sqlite3
+*.db
+discord_roaming_tts_bot.egg-info/
+pytest-cache-files-*/

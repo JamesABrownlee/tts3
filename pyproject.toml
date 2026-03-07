@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "discord-roaming-tts-bot"
+version = "0.1.0"
+description = "Production-ready roaming Discord TTS bot."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "aiohttp>=3.10.0,<4",
+  "discord.py[voice]>=2.4.0,<3",
+  "python-dotenv>=1.0.1,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2.0,<9",
+  "pytest-asyncio>=0.23.7,<0.24",
+]
+
+[tool.setuptools]
+packages = ["app", "bot", "bot.commands", "bot.events", "tts", "audio", "parsing", "storage", "domain"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

@@ -85,6 +85,7 @@ class SpeechOrchestrator:
         async with self.services.runtime_states.get_lock(message.guild.id):
             settings = await self.services.guild_settings_repository.get(message.guild.id)
             runtime_state = self.services.runtime_states.get(message.guild.id)
+            started_session = False
             if forced_voice_channel_id is not None:
                 if runtime_state.active_voice_channel_id is None:
                     logger.info(
@@ -104,13 +105,32 @@ class SpeechOrchestrator:
                         extra={"extra": {"guild_id": message.guild.id, "message_id": message.id, "author_id": message.author.id, "reason": "cannot_start_session_without_vc"}},
                     )
                     return
-                await self._start_session(message.guild, runtime_state, author_voice, message.channel.id)
+                started = await self._start_session(message.guild, runtime_state, author_voice, message.channel.id)
+                if not started:
+                    return
+                started_session = True
                 target_voice_channel_id = author_voice.id
             elif forced_voice_channel_id is None and runtime_state.active_voice_channel_id != author_voice.id:
                 logger.info(
                     "message_ignored",
                     extra={"extra": {"guild_id": message.guild.id, "message_id": message.id, "author_id": message.author.id, "reason": "different_active_vc"}},
                 )
+                return
+            voice_client = await self.ensure_live_voice_client(message.guild, target_voice_channel_id)
+            if voice_client is None:
+                reason = "session_start_failed_no_voice_client" if started_session else "live_voice_client_unavailable"
+                logger.warning(
+                    reason,
+                    extra={
+                        "extra": {
+                            "guild_id": message.guild.id,
+                            "message_id": message.id,
+                            "author_id": message.author.id,
+                            "voice_channel_id": target_voice_channel_id,
+                        }
+                    },
+                )
+                await self._clear_stale_session(message.guild.id, reason=reason, voice_channel_id=target_voice_channel_id)
                 return
             parsed = self._parse_discord_message(message, directives.cleaned_content)
             event = await self._build_event(message, member, settings, runtime_state, parsed, target_voice_channel_id)
@@ -149,9 +169,9 @@ class SpeechOrchestrator:
             return
         settings = await self.services.guild_settings_repository.get(guild.id)
         if joined_active and settings.welcome_enabled:
-            await self._enqueue_narrator_announcement(guild.id, active_channel_id, member, build_welcome_text(self._resolve_member_name(member), datetime.now()))
+            await self._enqueue_narrator_announcement(guild, active_channel_id, member, build_welcome_text(self._resolve_member_name(member), datetime.now()))
         elif left_active and settings.farewell_enabled:
-            await self._enqueue_narrator_announcement(guild.id, active_channel_id, member, build_farewell_text(self._resolve_member_name(member)))
+            await self._enqueue_narrator_announcement(guild, active_channel_id, member, build_farewell_text(self._resolve_member_name(member)))
         await self.schedule_disconnect_if_empty(guild)
 
     async def _start_session(
@@ -160,16 +180,39 @@ class SpeechOrchestrator:
         state: GuildRuntimeState,
         voice_channel: discord.VoiceChannel,
         text_channel_id: int,
-    ) -> None:
-        await self.services.voice_connections.ensure_connected(voice_channel)
+    ) -> bool:
+        logger.info(
+            "session_start_attempt",
+            extra={"extra": {"guild_id": guild.id, "voice_channel_id": voice_channel.id, "text_channel_id": text_channel_id}},
+        )
+        try:
+            await self.services.voice_connections.ensure_connected(voice_channel)
+        except Exception as exc:
+            logger.warning(
+                "session_start_failed",
+                extra={
+                    "extra": {
+                        "guild_id": guild.id,
+                        "voice_channel_id": voice_channel.id,
+                        "text_channel_id": text_channel_id,
+                        "error_type": type(exc).__name__,
+                    }
+                },
+            )
+            return False
         start_session(state, voice_channel_id=voice_channel.id, text_channel_id=text_channel_id)
         await self.services.guild_runtime_repository.save(state)
+        logger.info(
+            "session_start_connected",
+            extra={"extra": {"guild_id": guild.id, "voice_channel_id": voice_channel.id, "text_channel_id": text_channel_id}},
+        )
         logger.info(
             "session_started",
             extra={"extra": {"guild_id": guild.id, "voice_channel_id": voice_channel.id, "text_channel_id": text_channel_id}},
         )
         if state.queue_worker_task is None or state.queue_worker_task.done():
             state.queue_worker_task = asyncio.create_task(self._queue_worker(guild.id), name=f"guild-queue-{guild.id}")
+        return True
 
     def _parse_discord_message(self, message: discord.Message, content: str) -> ParsedMessage:
         return parse_message(
@@ -298,8 +341,22 @@ class SpeechOrchestrator:
 
     async def _play_event(self, event: SpokenEvent) -> None:
         voice_client = self.services.voice_connections.get(event.guild_id)
+        guild = voice_client.guild if voice_client is not None else self.services.voice_connections.get_guild(event.guild_id)
+        if guild is not None:
+            voice_client = await self.ensure_live_voice_client(guild, event.voice_channel_id)
         if voice_client is None or not voice_client.is_connected():
-            logger.warning("event_skipped_no_voice_client", extra={"extra": {"guild_id": event.guild_id, "event_id": event.event_id}})
+            logger.warning(
+                "event_skipped_no_voice_client",
+                extra={
+                    "extra": {
+                        "guild_id": event.guild_id,
+                        "event_id": event.event_id,
+                        "voice_channel_id": event.voice_channel_id,
+                        "reconnect_attempted": guild is not None,
+                    }
+                },
+            )
+            await self._clear_stale_session(event.guild_id, reason="live_voice_client_unavailable", voice_channel_id=event.voice_channel_id)
             return
         state = self.services.runtime_states.get(event.guild_id)
         for segment in event.segments:
@@ -327,19 +384,34 @@ class SpeechOrchestrator:
 
     async def _enqueue_narrator_announcement(
         self,
-        guild_id: int,
+        guild: discord.Guild,
         voice_channel_id: int,
         member: discord.Member,
         text: str,
     ) -> None:
-        settings = await self.services.guild_settings_repository.get(guild_id)
+        state = self.services.runtime_states.get(guild.id)
+        if state.active_voice_channel_id is None:
+            logger.info(
+                "narrator_announcement_skipped_no_live_session",
+                extra={"extra": {"guild_id": guild.id, "voice_channel_id": voice_channel_id}},
+            )
+            return
+        voice_client = await self.ensure_live_voice_client(guild, voice_channel_id)
+        if voice_client is None:
+            logger.info(
+                "narrator_announcement_skipped_no_live_session",
+                extra={"extra": {"guild_id": guild.id, "voice_channel_id": voice_channel_id, "reason": "no_voice_client"}},
+            )
+            await self._clear_stale_session(guild.id, reason="live_voice_client_unavailable", voice_channel_id=voice_channel_id)
+            return
+        settings = await self.services.guild_settings_repository.get(guild.id)
         narrator_voice_id = self.services.voice_catalog.resolve_narrator_voice(settings.narrator_voice_id)
         event = SpokenEvent(
-            guild_id=guild_id,
+            guild_id=guild.id,
             speaker_discord_id=None,
             speaker_display_name=self._resolve_member_name(member),
             message_id=None,
-            text_channel_id=self.services.runtime_states.get(guild_id).active_text_channel_id,
+            text_channel_id=state.active_text_channel_id,
             voice_channel_id=voice_channel_id,
             segments=[SpeechSegment(text=text, voice_id=narrator_voice_id, kind="narrator")],
             created_at=time(),
@@ -434,3 +506,63 @@ class SpeechOrchestrator:
         state.active_voice_channel_id = active_channel_id
         state.currently_connected = True
         return active_channel_id
+
+    async def ensure_live_voice_client(
+        self,
+        guild: discord.Guild,
+        target_voice_channel_id: int | None,
+    ) -> discord.VoiceClient | None:
+        voice_client = self.services.voice_connections.get(guild.id)
+        if voice_client is not None and voice_client.is_connected():
+            logger.info(
+                "live_voice_client_recovered_from_registry",
+                extra={"extra": {"guild_id": guild.id, "voice_channel_id": getattr(voice_client.channel, "id", None)}},
+            )
+            return voice_client
+        guild_voice_client = getattr(guild, "voice_client", None)
+        if guild_voice_client is not None and guild_voice_client.is_connected():
+            self.services.voice_connections.register(guild, guild_voice_client)
+            logger.info(
+                "live_voice_client_recovered_from_guild",
+                extra={"extra": {"guild_id": guild.id, "voice_channel_id": getattr(guild_voice_client.channel, "id", None)}},
+            )
+            return guild_voice_client
+        if target_voice_channel_id is not None:
+            channel = guild.get_channel(target_voice_channel_id)
+            if isinstance(channel, discord.VoiceChannel):
+                try:
+                    voice_client = await self.services.voice_connections.ensure_connected(channel)
+                except Exception as exc:
+                    logger.warning(
+                        "live_voice_client_unavailable",
+                        extra={
+                            "extra": {
+                                "guild_id": guild.id,
+                                "voice_channel_id": target_voice_channel_id,
+                                "error_type": type(exc).__name__,
+                            }
+                        },
+                    )
+                    return None
+                if voice_client is not None and voice_client.is_connected():
+                    logger.info(
+                        "live_voice_client_reconnected",
+                        extra={"extra": {"guild_id": guild.id, "voice_channel_id": target_voice_channel_id}},
+                    )
+                    return voice_client
+        logger.warning(
+            "live_voice_client_unavailable",
+            extra={"extra": {"guild_id": guild.id, "voice_channel_id": target_voice_channel_id}},
+        )
+        return None
+
+    async def _clear_stale_session(self, guild_id: int, *, reason: str, voice_channel_id: int | None) -> None:
+        state = self.services.runtime_states.get(guild_id)
+        if state.active_voice_channel_id is None and not state.currently_connected:
+            return
+        self.services.runtime_states.clear_session(guild_id)
+        await self.services.guild_runtime_repository.save(state)
+        logger.warning(
+            "stale_session_cleared",
+            extra={"extra": {"guild_id": guild_id, "voice_channel_id": voice_channel_id, "reason": reason}},
+        )

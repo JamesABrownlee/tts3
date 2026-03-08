@@ -17,6 +17,7 @@ class VoiceConnectionManager:
     def __init__(self) -> None:
         self._clients: dict[int, discord.VoiceClient] = {}
         self._locks: dict[int, asyncio.Lock] = {}
+        self._guilds: dict[int, discord.Guild] = {}
 
     def _lock(self, guild_id: int) -> asyncio.Lock:
         lock = self._locks.get(guild_id)
@@ -28,8 +29,16 @@ class VoiceConnectionManager:
     def get(self, guild_id: int) -> discord.VoiceClient | None:
         return self._clients.get(guild_id)
 
+    def get_guild(self, guild_id: int) -> discord.Guild | None:
+        return self._guilds.get(guild_id)
+
+    def register(self, guild: discord.Guild, voice_client: discord.VoiceClient) -> None:
+        self._clients[guild.id] = voice_client
+        self._guilds[guild.id] = guild
+
     async def ensure_connected(self, channel: discord.VoiceChannel) -> discord.VoiceClient:
         async with self._lock(channel.guild.id):
+            self._guilds[channel.guild.id] = channel.guild
             current = self._clients.get(channel.guild.id)
             if current and current.is_connected():
                 if current.channel and current.channel.id != channel.id:
@@ -38,11 +47,13 @@ class VoiceConnectionManager:
             voice_client = channel.guild.voice_client
             if voice_client and voice_client.is_connected():
                 self._clients[channel.guild.id] = voice_client
+                self._guilds[channel.guild.id] = channel.guild
                 if voice_client.channel and voice_client.channel.id != channel.id:
                     await voice_client.move_to(channel)
                 return voice_client
             connected = await channel.connect(reconnect=True)
             self._clients[channel.guild.id] = connected
+            self._guilds[channel.guild.id] = channel.guild
             return connected
 
     async def disconnect(self, guild_id: int) -> None:

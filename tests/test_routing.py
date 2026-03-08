@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -134,6 +135,7 @@ async def test_forced_tts_from_non_vc_user_uses_active_session(orchestrator, ser
     monkeypatch.setattr(orchestrator, "_parse_discord_message", fake_parse)
     monkeypatch.setattr(orchestrator, "_build_event", fake_build_event)
     monkeypatch.setattr(services.queue_manager, "enqueue", fake_enqueue)
+    monkeypatch.setattr(orchestrator, "ensure_live_voice_client", AsyncMock(return_value=SimpleNamespace(is_connected=lambda: True)))
 
     member = SimpleNamespace(id=502, bot=False, display_name="Bob", nick=None, voice=None)
     guild = SimpleNamespace(id=202, get_member=lambda member_id: member)
@@ -170,6 +172,7 @@ async def test_join_active_channel_triggers_welcome_when_enabled(orchestrator, s
         return None
     monkeypatch.setattr(orchestrator, "schedule_disconnect_if_empty", fake_schedule_disconnect)
     monkeypatch.setattr("bot.services.build_welcome_text", lambda name, current_time: f"Hello {name}")
+    monkeypatch.setattr(orchestrator, "ensure_live_voice_client", AsyncMock(return_value=SimpleNamespace(is_connected=lambda: True)))
     member = SimpleNamespace(id=1, bot=False, guild=SimpleNamespace(id=501), nick="Ali", display_name="Alice", name="Alice")
     before = SimpleNamespace(channel=None)
     after = SimpleNamespace(channel=SimpleNamespace(id=700))
@@ -198,6 +201,7 @@ async def test_leave_active_channel_triggers_farewell_when_enabled(orchestrator,
         return None
     monkeypatch.setattr(orchestrator, "schedule_disconnect_if_empty", fake_schedule_disconnect)
     monkeypatch.setattr("bot.services.build_farewell_text", lambda name: f"Bye {name}")
+    monkeypatch.setattr(orchestrator, "ensure_live_voice_client", AsyncMock(return_value=SimpleNamespace(is_connected=lambda: True)))
     member = SimpleNamespace(id=2, bot=False, guild=SimpleNamespace(id=502), nick=None, display_name="Bob", name="Bob")
     before = SimpleNamespace(channel=SimpleNamespace(id=701))
     after = SimpleNamespace(channel=None)
@@ -222,6 +226,7 @@ async def test_move_into_active_channel_triggers_welcome(orchestrator, services,
         return None
     monkeypatch.setattr(orchestrator, "schedule_disconnect_if_empty", fake_schedule_disconnect)
     monkeypatch.setattr("bot.services.build_welcome_text", lambda name, current_time: f"{name} has joined")
+    monkeypatch.setattr(orchestrator, "ensure_live_voice_client", AsyncMock(return_value=SimpleNamespace(is_connected=lambda: True)))
     member = SimpleNamespace(id=3, bot=False, guild=SimpleNamespace(id=503), nick=None, display_name="Cara", name="Cara")
     before = SimpleNamespace(channel=SimpleNamespace(id=999))
     after = SimpleNamespace(channel=SimpleNamespace(id=702))
@@ -245,6 +250,7 @@ async def test_move_out_of_active_channel_triggers_farewell(orchestrator, servic
         return None
     monkeypatch.setattr(orchestrator, "schedule_disconnect_if_empty", fake_schedule_disconnect)
     monkeypatch.setattr("bot.services.build_farewell_text", lambda name: f"{name} has left")
+    monkeypatch.setattr(orchestrator, "ensure_live_voice_client", AsyncMock(return_value=SimpleNamespace(is_connected=lambda: True)))
     member = SimpleNamespace(id=4, bot=False, guild=SimpleNamespace(id=504), nick=None, display_name="Drew", name="Drew")
     before = SimpleNamespace(channel=SimpleNamespace(id=703))
     after = SimpleNamespace(channel=SimpleNamespace(id=900))

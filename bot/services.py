@@ -390,12 +390,6 @@ class SpeechOrchestrator:
         text: str,
     ) -> None:
         state = self.services.runtime_states.get(guild.id)
-        if state.active_voice_channel_id is None:
-            logger.info(
-                "narrator_announcement_skipped_no_live_session",
-                extra={"extra": {"guild_id": guild.id, "voice_channel_id": voice_channel_id}},
-            )
-            return
         voice_client = await self.ensure_live_voice_client(guild, voice_channel_id)
         if voice_client is None:
             logger.info(
@@ -404,6 +398,18 @@ class SpeechOrchestrator:
             )
             await self._clear_stale_session(guild.id, reason="live_voice_client_unavailable", voice_channel_id=voice_channel_id)
             return
+
+        # Recover session state from a live VC connection so transition
+        # announcements still work after restarts/state loss.
+        if state.active_voice_channel_id is None:
+            state.active_voice_channel_id = voice_channel_id
+            state.currently_connected = True
+            await self.services.guild_runtime_repository.save(state)
+            logger.info(
+                "session_state_recovered_from_live_voice_client",
+                extra={"extra": {"guild_id": guild.id, "voice_channel_id": voice_channel_id}},
+            )
+
         settings = await self.services.guild_settings_repository.get(guild.id)
         narrator_voice_id = self.services.voice_catalog.resolve_narrator_voice(settings.narrator_voice_id)
         event = SpokenEvent(

@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    user: "1000:1000"
     environment:
       DISCORD_TOKEN: ${DISCORD_TOKEN}
       SQLITE_PATH: /app/data/bot.sqlite3
@@ -18,7 +19,16 @@ services:
       MAX_AUDIO_SECONDS: ${MAX_AUDIO_SECONDS:-20}
       VOICE_FAILURE_THRESHOLD: ${VOICE_FAILURE_THRESHOLD:-3}
       VOICE_COOLDOWN_DURATION: ${VOICE_COOLDOWN_DURATION:-300}
+      API_KEY: ${API_KEY}
     restart: unless-stopped
+    ports:
+      - "6969:8000"
     volumes:
-      - ./data:/app/data
-      - ./temp_audio:/app/temp_audio
+      - tts3_data:/app/data
+      - tts3_temp_audio:/app/temp_audio
+
+volumes:
+  tts3_data:
+    external: true
+  tts3_temp_audio:
+    external: true
